@@ -19,7 +19,7 @@ public class BurpExtender implements IBurpExtender, IScannerCheck
     private PrintWriter stdout;
 
     // RegEx pattern for finding BigIP style cookies
-    private Pattern bigIpPattern = Pattern.compile("[0-9]{9,10}\\.[0-9]{5}\\.0000");
+    private Pattern bigIpPattern = Pattern.compile("[0-9]{8,10}\\.[0-9]{3,5}\\.0000");
     
     @Override
     public void registerExtenderCallbacks(final IBurpExtenderCallbacks callbacks)
@@ -54,34 +54,42 @@ public class BurpExtender implements IBurpExtender, IScannerCheck
         return matches;
     }
 
-    //
-    // implement IScannerCheck
-    //
+    // Given a list of cookies, return any BigIP cookies found
+    private List<BigIPCookie> searchForCookies(List<ICookie> cookies){
+        Matcher matcher;
+        BigIPCookie bigCookie;
+
+        List<BigIPCookie> bigCookies = new ArrayList<>();
+
+        for (ICookie cookie: cookies){
+            // Check for a cookie value that matches a BigIP cookie
+            matcher = bigIpPattern.matcher(cookie.getValue());
+            if (matcher.matches()){
+                bigCookie = new BigIPCookie(cookie.getName(), cookie.getValue());
+                bigCookies.add(bigCookie);
+            }
+        }
+
+        return bigCookies;
+    }
     
     @Override
     public List<IScanIssue> doPassiveScan(IHttpRequestResponse baseRequestResponse)
     {
         List<IScanIssue> issues = new ArrayList<>();
         List<ICookie> cookies = helpers.analyzeResponse(baseRequestResponse.getResponse()).getCookies();
-        Matcher matcher;
+        List<BigIPCookie> responseCookies = searchForCookies(cookies);
         List<int[]> matches;
-        BigIPCookie bigCookie;
-
-        // Search through cookies in the response
-        for (ICookie cookie: cookies){
-            // Check for a cookie value that matches a BigIP cookie
-            matcher = bigIpPattern.matcher(cookie.getValue());
-            if (matcher.matches()){
-                bigCookie = new BigIPCookie(cookie.getName(), cookie.getValue());
-                matches = getMatches(baseRequestResponse.getResponse(), cookie.getValue().getBytes());
-                issues.add(new BigIPCookieScanIssue(
-                    baseRequestResponse.getHttpService(),
-                    helpers.analyzeRequest(baseRequestResponse).getUrl(), 
-                    new IHttpRequestResponse[] { callbacks.applyMarkers(baseRequestResponse, null, matches) }, 
-                    bigCookie
-                    ));
-            }
+        for (BigIPCookie cookie: responseCookies){
+            matches = getMatches(baseRequestResponse.getResponse(), cookie.getEncoded().getBytes());
+            issues.add(new BigIPCookieScanIssue(
+                baseRequestResponse.getHttpService(),
+                helpers.analyzeRequest(baseRequestResponse).getUrl(), 
+                new IHttpRequestResponse[] { callbacks.applyMarkers(baseRequestResponse, null, matches) }, 
+                cookie
+            ));
         }
+        
         if (issues.size() > 0){
             return issues;
         }
