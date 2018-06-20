@@ -18,14 +18,8 @@ public class BurpExtender implements IBurpExtender, IScannerCheck
     private IExtensionHelpers helpers;
     private PrintWriter stdout;
 
+    // RegEx pattern for finding BigIP style cookies
     private Pattern bigIpPattern = Pattern.compile("[0-9]{9,10}\\.[0-9]{5}\\.0000");
-
-    // test / grep strings
-    private static final byte[] GREP_STRING = "1677787402.36895.0000".getBytes();
-    
-    //
-    // implement IBurpExtender
-    //
     
     @Override
     public void registerExtenderCallbacks(final IBurpExtenderCallbacks callbacks)
@@ -37,10 +31,7 @@ public class BurpExtender implements IBurpExtender, IScannerCheck
         // obtain an extension helpers object
         helpers = callbacks.getHelpers();
         
-        // set our extension name
         callbacks.setExtensionName("BigIP Cookie Scanner");
-        
-        // register ourselves as a custom scanner check
         callbacks.registerScannerCheck(this);
     }
     
@@ -70,15 +61,17 @@ public class BurpExtender implements IBurpExtender, IScannerCheck
     @Override
     public List<IScanIssue> doPassiveScan(IHttpRequestResponse baseRequestResponse)
     {
-        List<IScanIssue> issues = new ArrayList<>(1);
+        List<IScanIssue> issues = new ArrayList<>();
         List<ICookie> cookies = helpers.analyzeResponse(baseRequestResponse.getResponse()).getCookies();
         Matcher matcher;
         List<int[]> matches;
         BigIPCookie bigCookie;
+
+        // Search through cookies in the response
         for (ICookie cookie: cookies){
+            // Check for a cookie value that matches a BigIP cookie
             matcher = bigIpPattern.matcher(cookie.getValue());
             if (matcher.matches()){
-                this.stdout.println(cookie.getValue());
                 bigCookie = new BigIPCookie(cookie.getName(), cookie.getValue());
                 matches = getMatches(baseRequestResponse.getResponse(), cookie.getValue().getBytes());
                 issues.add(new BigIPCookieScanIssue(
@@ -124,11 +117,13 @@ class BigIPCookie {
         this.decodeIPv4();
     }
 
+    // Reverses the BigIP cookie encoding
     public void decodeIPv4(){
         String[] splitString = this.encoded.split("\\.");
         String host = splitString[0];
-        // Ensure host is padded to 8 characters
+        // Decode as hex and ensure result is padded to 8 characters
         String hostAsHex = BigIPCookie.leftPad(Long.toHexString(Long.parseLong(host)), 8, '0');
+        // Each two bytes is an octet in the IP address in reverse order
         String oct4 = BigIPCookie.hexStringToDecString(hostAsHex.substring(0, 2));
         String oct3 = BigIPCookie.hexStringToDecString(hostAsHex.substring(2, 4));
         String oct2 = BigIPCookie.hexStringToDecString(hostAsHex.substring(4, 6));
@@ -136,7 +131,7 @@ class BigIPCookie {
         this.host = oct1 + "." + oct2 + "." + oct3 + "." + oct4;
 
         String port = splitString[1];
-        // Ensure port is padded to 4 characters
+        // Decode as hex and ensure result is padded to 4 characters
         String portAsHex = BigIPCookie.leftPad(Long.toHexString(Long.parseLong(port)), 4, '0');
         String reversedHex = portAsHex.substring(2, 4) + portAsHex.substring(0, 2);
         this.port = BigIPCookie.hexStringToDecString(reversedHex);
@@ -156,12 +151,10 @@ class BigIPCookie {
     }
 
     public String getHost(){
-        //return "111.222.333.444";
         return this.host;
     }
 
     public String getPort(){
-        //return "443";
         return this.port;
     }
 
